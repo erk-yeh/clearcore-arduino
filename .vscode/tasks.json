@@ -1,0 +1,50 @@
+{
+    "version": "2.0.0",
+
+    // The port is resolved at run time by tools/clearcore-port.ps1 rather than
+    // prompted for or hardcoded: the ClearCore re-enumerates on a different COM
+    // port after each upload, so any fixed value goes stale immediately.
+    // Pinning the shell guarantees the (...) substitution is PowerShell's and
+    // not whatever terminal profile happens to be the default.
+    "windows": {
+        "options": {
+            "shell": {
+                "executable": "powershell.exe",
+                "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
+            }
+        }
+    },
+
+    "tasks": [
+        {
+            "label": "arduino-cli: compile",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn ClearCore:sam:clearcore --build-path ./build ./sketch",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "arduino-cli: upload",
+            "detail": "--input-dir must match the compile task's --build-path; upload otherwise looks in arduino-cli's own sketch cache and reports 'Compiled sketch not found'.",
+            "type": "shell",
+            "command": "arduino-cli upload --fqbn ClearCore:sam:clearcore -p (./tools/clearcore-port.ps1) --input-dir ./build ./sketch",
+            "dependsOn": "arduino-cli: compile",
+            "problemMatcher": []
+        },
+        {
+            "label": "arduino-cli: compilation database",
+            "detail": "Regenerate build/compile_commands.json for IntelliSense. Re-run after changing the sketch's #includes or updating the ClearCore core.",
+            "type": "shell",
+            "command": "arduino-cli compile --fqbn ClearCore:sam:clearcore --build-path ./build --only-compilation-database ./sketch",
+            "problemMatcher": []
+        },
+        {
+            "label": "arduino-cli: serial monitor",
+            "detail": "Resolves the port fresh, so it picks up the post-upload port change automatically.",
+            "type": "shell",
+            "command": "arduino-cli monitor -p (./tools/clearcore-port.ps1) -c baudrate=115200",
+            "problemMatcher": [],
+            "isBackground": true
+        }
+    ]
+}

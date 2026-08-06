@@ -1,0 +1,30 @@
+{
+    // NB: the toolchain resolves under packages/arduino, NOT packages/ClearCore
+    // -- the ClearCore package declares gcc/bossac/CMSIS as dependencies on the
+    // arduino package rather than vendoring its own copies.
+    "cortex-debug.armToolchainPath": "${env:LOCALAPPDATA}/Arduino15/packages/arduino/tools/arm-none-eabi-gcc/7-2017q4/bin",
+    "cortex-debug.openocdPath": "openocd",
+
+    "files.associations": {
+        "*.ino": "cpp"
+    },
+
+    "VsCodeTaskButtons.showCounter": false,
+    "VsCodeTaskButtons.tasks": [
+        {
+            "label": "$(check) Compile",
+            "task": "arduino-cli: compile",
+            "tooltip": "arduino-cli compile --fqbn ClearCore:sam:clearcore"
+        },
+        {
+            "label": "$(cloud-upload) Upload",
+            "task": "arduino-cli: upload",
+            "tooltip": "Compile, then flash the ClearCore over USB serial"
+        },
+        {
+            "label": "$(pulse) Monitor",
+            "task": "arduino-cli: serial monitor",
+            "tooltip": "arduino-cli monitor @ 115200 baud"
+        }
+    ]
+}
