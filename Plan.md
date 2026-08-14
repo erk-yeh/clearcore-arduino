@@ -54,6 +54,10 @@ as decisions get made or revisited, don't just append.
   detection), stop, move a small offset away from the hardstop, wait for
   HLFB to assert again, then `PositionRefSet(0)`. Requires the ClearPath
   itself configured in MSP for "User seeks home" homing style.
+  **We are diverging from this for our own homing**, since we have real
+  limit switches: home to a `LimitSwitchPos`/`LimitSwitchNeg` trip (which
+  auto-decelerates and raises a `MotionCanceled*Limit` alert) rather than
+  intentionally stalling against a hardstop. See the homing section below.
 - Reference command dispatcher exists at
   `libraries/SerialCommunication/examples/ClearCoreCommandProtocol/ClearCoreCommandProtocol.ino`
   (Teknic-provided) — full text-command-over-`ConnectorUsb` example covering
@@ -76,6 +80,35 @@ as decisions get made or revisited, don't just append.
   reasserted are detected, not blocked on synchronously.
 - **Rehoming happens every power-up** — confirmed necessary and expected,
   not something to try to avoid via persisted position.
+- **Units on the wire: mm.** Integer mm gives 10x finer addressable
+  resolution than the 0.5 cm accuracy spec needs, no decimals required in
+  the protocol. The steps-per-mm conversion constant lives in `Motion`
+  (it's a mechanical calibration fact), not `Serial` — `Serial` stays
+  unaware of steps entirely; something like `MotionMoveAbsoluteMM(axis, mm)`
+  converts and calls the existing `MotionMoveAbsolute`.
+- **Reply semantics: silence until done.** No separate fast "accepted" ack
+  for a `MOVE` that's going to succeed — a command gets exactly one
+  terminal reply: an immediate rejection (bad syntax, alert present, etc.)
+  if applicable, otherwise silence during the move and a single unsolicited
+  reply once it actually completes. Chosen to keep the PC's waiting logic
+  simple — it only ever waits for one of exactly two outcomes (ACK or NAK)
+  per command, never has to distinguish "accepted" from "done".
+- **No firmware-side "not homed" rejection.** `Motion` does not track a
+  per-axis homed flag and does not refuse moves before homing. Justified
+  by the init ordering below (homing always completes before serial is
+  even brought up, so there's no window for a premature `MOVE` around
+  boot) plus trusting the PC to decide whether to re-home after that
+  (e.g. after a fault) rather than firmware enforcing it. The limit
+  switches remain the fallback safety net regardless.
+- **Coordinated (point-based) motion, not independent per-axis commands.**
+  One `MOVE`-style command carries both X and Y; `Motion` fires both
+  (non-blocking) `Move()` calls back-to-back — confirmed via Teknic's
+  `DualAxisSynchronized` example that this needs no waiting/status-check in
+  between, the step generators run independently per axis in the
+  background — and waits for both to reach target before sending back a
+  single reply. Chosen over independent per-axis messages to minimize
+  traffic and avoid the PC having to correlate two separate completion
+  events per logical move.
 
 ## Motor configuration
 
@@ -109,7 +142,9 @@ as decisions get made or revisited, don't just append.
   serial dispatcher has to pick an axis from parsed input).
   `motor_init()`, `MotionEnable`, `MotionMoveAbsolute`, `MotionStop`,
   `MotionClearAlerts`, `MotionZero`, `MotionGetStatus` are real, not
-  stubs — everything not gated on an open decision below.
+  stubs — everything not gated on an open decision below. `motor_init()`
+  now also configures the limit switch / E-Stop pins (see I/O wiring
+  section) and sets their connector modes to `INPUT_DIGITAL`.
 - `Serial.hpp`/`.cpp` — not started.
 - `sketch.ino` — still the original blink example; not yet wired to
   `Motion`, since dispatch needs the (deferred) wire protocol.
@@ -125,62 +160,68 @@ as decisions get made or revisited, don't just append.
   deliberately chosen so a disconnect/broken wire reads as "triggered"
   rather than silently reading as "fine" (fail-safe: distinguishes a wiring
   fault from genuinely clear travel).
-- **Pin allocation plan:** put the 5 inputs on `DI6`, `DI7`, `DI8`, plus two
-  of `IO0`-`IO5`, leaving the rest of `IO0`-`IO5` free — those are the only
-  connectors here that can also do digital *output* (status/trigger lines,
-  etc.), so reserving them for pure input is wasteful. Exact pin-to-signal
-  assignment still TBD, but the allocation strategy is agreed.
+- **Pin assignment (final):** `DI8` = E-Stop (shared, both axes),
+  `DI6`/`DI7` = X-neg/X-pos, `IO0`/`IO1` = Y-neg/Y-pos. Leaves `IO2`-`IO5`
+  free for future digital output use. Coded in `Motion.cpp`'s `motor_init()`
+  via `LimitSwitchNeg`/`LimitSwitchPos`/`EStopConnector`, each pin first set
+  to `Connector::INPUT_DIGITAL` (matching Teknic's examples, which do this
+  explicitly even for `DI6`-`DI8`). **The +/- direction-to-pin mapping
+  (which physical switch is "pos" vs. "neg") is an assumption, not yet
+  confirmed against actual wiring** — swapping it later is a one-line fix.
 - **Brake (Y/vertical axis only) is NOT a ClearCore concern.** Wired
   directly into the power line rather than through `MotorDriver::
   BrakeOutput()` — a fail-safe brake that disengages only while powered, so
   it auto-engages on any power loss. No firmware configuration needed for
   it at all.
 
-## Initialization sequence (structure agreed; some steps still open)
+## Initialization sequence (order updated — homing before serial bring-up)
 
 1. **Boot / hardware config** — `MotorMgr.MotorInputClocking(...)`, put M0/M1
    into `CPM_MODE_STEP_AND_DIR`, set HLFB mode + 482 Hz carrier, set default
-   `VelMax`/`AccelMax`. No serial needed yet; happens every boot
-   unconditionally.
-2. **Serial bring-up** — open `ConnectorUsb`, block until the host has
-   actually opened the port (`while (!ConnectorUsb)`), not just a fixed delay.
-3. **Homing** — each axis seeks its hardstop, detects the stall via HLFB,
-   backs off, zeros its position reference. Real, unattended physical motion
-   happens here before any PC command is involved.
-4. **Ready** — once homed, ClearCore sends one unsolicited line so the PC
-   knows unambiguously it's safe to start issuing absolute moves.
+   `VelMax`/`AccelMax`.
+2. **Homing** — each axis seeks its limit switch, backs off, zeros its
+   position reference. Happens **before serial is even brought up** — this
+   is deliberate: it means there is no window where the PC could send a
+   `MOVE` before homing finishes, since it can't send anything at all yet.
+3. **Serial bring-up** — open `ConnectorUsb`, block until the host has
+   actually opened the port (`while (!ConnectorUsb)`), not just a fixed
+   delay.
+4. **Ready** — once serial is open (homing is already done by this point),
+   ClearCore sends one unsolicited line so the PC knows it's safe to start
+   issuing absolute moves.
 5. **Command loop** — wait for a command, execute (non-blocking), report
-   back, wait again.
+   back once (see reply semantics above), wait again. A later explicit
+   `HOME` command re-runs step 2 on demand, e.g. after a fault — whether to
+   use it is left to the PC/operator, not enforced by firmware.
+
+## Homing sequence (limit-switch based; see divergence note above)
+
+Per axis: enable, confirm no pre-existing alerts, `MoveVelocity()` at a
+slow homing-specific speed toward the "home" limit switch, poll for the
+resulting `MotionCanceled*Limit` alert bit (the trip), `ClearAlerts()`,
+move a small fixed offset away from the switch (must be the opposite
+direction — the docs warn the alert reappears if you move toward the limit
+again), wait for that move to complete, then `PositionRefSet(0)`.
+
+Still open:
+- **Which limit switch is "home" per axis** — positive or negative for X;
+  top or bottom for Y. For Y specifically, gravity matters: homing toward
+  the bottom means the seek move is gravity-assisted, homing toward the
+  top means lifting against gravity the whole approach.
+- **Sequential vs. simultaneous homing of X and Y.** Sequential is simpler
+  to reason about and keeps only one axis moving unattended at a time;
+  simultaneous is faster.
+- **Homing velocity as its own constant**, separate from general
+  `VelMax` (which is itself still a placeholder) — homing should probably
+  be slower than normal operation regardless of what that ends up being.
 
 ## Open questions (not yet decided)
 
-- **Auto-home-on-boot vs. PC-triggered homing.** Does ClearCore home itself
-  immediately after boot before telling the PC anything, or come up idle
-  and wait for an explicit `HOME` command per axis first (gives the PC/human
-  operator control over when that unattended motion happens)?
-- **Accept-ack vs. arrival-only reply semantics.** Does "communicate back
-  that it's ok" mean "arrived at target", or is there also meant to be a
-  fast accept/reject ack separate from the later arrival message (e.g. to
-  immediately reject a malformed command)?
-- **Where "not yet homed" is enforced.** Does `Motion` itself reject an
-  absolute move if the axis hasn't homed this session, or is sequencing
-  that left to the PC?
-- **Coordinated vs. independent X/Y motion.** Does the PC command each axis
-  separately and wait for both, or does `Motion` expose a point-based
-  "go to (x, y)" that reports done when both axes arrive? Teknic's
-  `DualAxisSynchronized` example
-  (`Teknic/Microchip_Examples/ClearPathModeExamples/ClearPath-SD_Series/DualAxisSynchronized/`)
-  is relevant here and hasn't been reviewed yet.
-- **Units on the wire** — raw steps vs. physical units (cm) in `MOVE`
-  commands — deferred along with the rest of the serial protocol design.
 - **Exact command grammar** — deferred; to be designed after the
-  above structural questions are settled.
+  above structural questions are settled. (Units are settled — mm — this
+  is just the literal syntax, e.g. `MOVE 150 80` vs. something else.)
 - **HLFB drive-side config** — need to check each ClearPath-SD's actual MSP
   HLFB mode/carrier setting before finalizing firmware `HlfbMode()`/
   `HlfbCarrier()` calls.
 - **Linear-distance-per-step mapping** — needed to calculate real
   `VelMax`/`AccelMax`, currently placeholders.
-- **Exact limit switch / E-Stop pin assignment** — allocation strategy
-  agreed (see I/O wiring section above), but which physical connector gets
-  which specific signal (e.g. which of `DI6`-`DI8` is E-Stop vs. X-neg)
-  isn't picked yet.

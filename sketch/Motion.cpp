@@ -2,13 +2,27 @@
 
 static MotorDriver *const motors[AXIS_COUNT] = { &ConnectorM0, &ConnectorM1 };
 
+// Assumed direction pending confirmation against actual physical wiring.
+static const ClearCorePins limitPinNeg[AXIS_COUNT] = { CLEARCORE_PIN_DI6, CLEARCORE_PIN_IO0 };
+static const ClearCorePins limitPinPos[AXIS_COUNT] = { CLEARCORE_PIN_DI7, CLEARCORE_PIN_IO1 };
+static const ClearCorePins eStopPin = CLEARCORE_PIN_DI8;
+
 int motor_init() {
     MotorMgr.MotorInputClocking(MotorManager::CLOCK_RATE_NORMAL);
     MotorMgr.MotorModeSet(MotorManager::MOTOR_M0M1, Connector::CPM_MODE_STEP_AND_DIR);
 
+    ConnectorDI6.Mode(Connector::INPUT_DIGITAL);
+    ConnectorDI7.Mode(Connector::INPUT_DIGITAL);
+    ConnectorDI8.Mode(Connector::INPUT_DIGITAL);
+    ConnectorIO0.Mode(Connector::INPUT_DIGITAL);
+    ConnectorIO1.Mode(Connector::INPUT_DIGITAL);
+
     for (int i = 0; i < AXIS_COUNT; i++) {
         motors[i]->VelMax(velocity_max);
         motors[i]->AccelMax(acceleration_max);
+        motors[i]->LimitSwitchNeg(limitPinNeg[i]);
+        motors[i]->LimitSwitchPos(limitPinPos[i]);
+        motors[i]->EStopConnector(eStopPin);
     }
 
     return 0;
