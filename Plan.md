@@ -145,9 +145,18 @@ as decisions get made or revisited, don't just append.
   stubs — everything not gated on an open decision below. `motor_init()`
   now also configures the limit switch / E-Stop pins (see I/O wiring
   section) and sets their connector modes to `INPUT_DIGITAL`.
-- `Serial.hpp`/`.cpp` — not started.
-- `sketch.ino` — still the original blink example; not yet wired to
-  `Motion`, since dispatch needs the (deferred) wire protocol.
+- **`Serial.hpp`/`.cpp` — coded and compiling.** `SerialInit()` (open
+  `ConnectorUsb`, block until host opens port) and `SerialReadLine()`
+  (non-blocking, accumulates bytes into a `static` buffer *across*
+  `loop()` calls, returns `true` only once a full `\n`-terminated line has
+  arrived — deliberately not assuming a whole line arrives in one read,
+  unlike Teknic's `ClearCoreCommandProtocol` example).
+- **`sketch.ino` — wired up, dispatch left as a TODO.** `setup()` calls
+  `motor_init()` then `SerialInit()` (homing not inserted yet — still a
+  TODO comment, pending the homing function itself). `loop()` calls
+  `SerialReadLine` and has a stub where command parsing/dispatch goes,
+  intentionally left unimplemented — this is where the (still undecided)
+  command grammar will live, and where active development is happening.
 
 ## I/O wiring (limit switches, E-Stop, brake)
 
@@ -203,17 +212,18 @@ move a small fixed offset away from the switch (must be the opposite
 direction — the docs warn the alert reappears if you move toward the limit
 again), wait for that move to complete, then `PositionRefSet(0)`.
 
+- **Home direction: negative limit switch, both axes.** Origin (0,0) is
+  the bottom-left corner of the planar setup — X-neg and Y-neg are both
+  "home". (Y homes toward the bottom, so this seek move is
+  gravity-assisted rather than lifting against gravity.)
+- **Homing velocity: separate constant, placeholder 400 steps/sec.**
+  Deliberately distinct from general `VelMax` (itself still a placeholder)
+  — expected to change once real mechanical calibration is done.
+
 Still open:
-- **Which limit switch is "home" per axis** — positive or negative for X;
-  top or bottom for Y. For Y specifically, gravity matters: homing toward
-  the bottom means the seek move is gravity-assisted, homing toward the
-  top means lifting against gravity the whole approach.
 - **Sequential vs. simultaneous homing of X and Y.** Sequential is simpler
   to reason about and keeps only one axis moving unattended at a time;
   simultaneous is faster.
-- **Homing velocity as its own constant**, separate from general
-  `VelMax` (which is itself still a placeholder) — homing should probably
-  be slower than normal operation regardless of what that ends up being.
 
 ## Open questions (not yet decided)
 

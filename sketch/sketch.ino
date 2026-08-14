@@ -1,17 +1,15 @@
-#include "ClearCore.h"
-
-bool outputState;
+#include "Motion.hpp"
+#include "Serial.hpp"
 
 void setup() {
-    // IO-0 through IO-5 are the only connectors that support digital output.
-    ConnectorIO0.Mode(Connector::OUTPUT_DIGITAL);
-    outputState = true;
+    motor_init();
+    // TODO: homing goes here once implemented (before SerialInit, per Plan.md)
+    SerialInit();
 }
 
 void loop() {
-    ConnectorIO0.State(outputState);
-    outputState = !outputState;
-    delay(1000);
+    SerialLine line;
+    if (SerialReadLine(&line)) {
+        // TODO: dispatch on line.command / line.args (command grammar TBD)
+    }
 }
-
-
