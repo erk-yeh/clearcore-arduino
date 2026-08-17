@@ -12,6 +12,14 @@ void SerialInit() {
     }
 }
 
+void SerialSend(const char *text) {
+    ConnectorUsb.Send(text);
+}
+
+void SerialSendLine(const char *text) {
+    ConnectorUsb.SendLine(text);
+}
+
 void SerialLine::ReadLine(const char *rawLine) {
     strncpy(raw, rawLine, sizeof(raw) - 1);
     raw[sizeof(raw) - 1] = '\0';
@@ -32,11 +40,15 @@ bool SerialReadLine(SerialLine *line) {
 
         char c = (char)ConnectorUsb.CharGet();
 
-        if (c == '\r') {
-            continue;
-        }
-
-        if (c == '\n') {
+        // Treat \r and \n as equally valid terminators - accepts \n-only,
+        // \r-only, or \r\n line endings without knowing which one the
+        // sender actually uses.
+        if (c == '\r' || c == '\n') {
+            if (lineLength == 0) {
+                // Swallow a terminator with nothing before it: either the
+                // second half of a \r\n pair, or an accidental blank line.
+                continue;
+            }
             lineBuffer[lineLength] = '\0';
             line->ReadLine(lineBuffer);
             lineLength = 0;
@@ -46,7 +58,8 @@ bool SerialReadLine(SerialLine *line) {
         if (lineLength < LINE_BUFFER_LEN - 1) {
             lineBuffer[lineLength++] = c;
         }
-        // else: silently drop overflow chars until the next newline.
+        // else: silently drop overflow chars until the next terminator.
     }
     return false;
 }
+ 

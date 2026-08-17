@@ -5,6 +5,8 @@
 #define LINE_BUFFER_LEN 64
 
 void SerialInit();
+void SerialSend(const char *text);
+void SerialSendLine(const char *text);
 
 class SerialLine {
     public:
