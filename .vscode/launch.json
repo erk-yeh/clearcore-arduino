@@ -13,6 +13,21 @@
             ],
             "runToEntryPoint": "main",
             "showDevDebugOutput": "raw"
+        },
+        {
+            "name": "ClearCore Debug (PEmicro)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/sketch.ino.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "pe",
+            "device": "Microchip_SAME_ATSAME53N19A",
+            "interface": "swd",
+            "armToolchainPath": "C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi/bin",//"${env:LOCALAPPDATA}/Arduino15/packages/arduino/tools/arm-none-eabi-gcc/7-2017q4/bin",
+            "serverpath": "C:/PEmicro/gdbserver/pegdbserver_console.exe",
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "raw"
         }
     ]
 }
+
