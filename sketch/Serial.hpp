@@ -4,11 +4,9 @@
 #define MAX_ARGS 3
 #define LINE_BUFFER_LEN 64
 
-void SerialInit();
-void SerialSend(const char *text);
-void SerialSendLine(const char *text);
+#define SerialPort ConnectorUsb 
 
-class SerialLine {
+class CommandLine {
     public:
         // Copies rawLine into this object's own storage and tokenizes it
         // (whitespace-separated) into command + args.
@@ -22,6 +20,12 @@ class SerialLine {
         char raw[LINE_BUFFER_LEN];
 };
 
+void SerialInit();
+void SerialSend(const char *text);
+void SerialSendLine(const char *text);
+
+
+
 // Non-blocking: returns true (and fills `line`) at most once per completed
 // line. Returns false immediately if a full line hasn't arrived yet.
-bool SerialReadLine(SerialLine *line);
+bool SerialReadLine(CommandLine *line);

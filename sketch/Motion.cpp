@@ -32,12 +32,20 @@ void MotionEnable(MotionAxis axis, bool enable) {
     motors[axis]->EnableRequest(enable);
 }
 
+bool MotionCanMove(MotionAxis axis) {
+    return !motors[axis]->StatusReg().bit.AlertsPresent;
+}
+
 bool MotionMoveAbsolute(MotionAxis axis, int32_t position) {
     MotorDriver *motor = motors[axis];
     if (motor->StatusReg().bit.AlertsPresent) {
         return false;
     }
     return motor->Move(position, MotorDriver::MOVE_TARGET_ABSOLUTE);
+}
+
+bool MotionMoveAbsoluteMM(MotionAxis axis, int32_t mm) {
+    return MotionMoveAbsolute(axis, mm * STEPS_PER_MM);
 }
 
 void MotionStop(MotionAxis axis) {
@@ -63,4 +71,57 @@ MotionStatus MotionGetStatus(MotionAxis axis) {
     status.faulted = reg.bit.MotorInFault;
     status.alertsPresent = reg.bit.AlertsPresent;
     return status;
+}
+
+enum HomePhase { HOME_PHASE_IDLE, HOME_PHASE_SEEKING, HOME_PHASE_BACKOFF };
+static HomePhase homePhase[AXIS_COUNT] = { HOME_PHASE_IDLE, HOME_PHASE_IDLE };
+
+bool MotionHomeStart(MotionAxis axis) {
+    MotorDriver *motor = motors[axis];
+    if (motor->StatusReg().bit.AlertsPresent) {
+        return false;
+    }
+    motor->EnableRequest(true);
+    homePhase[axis] = HOME_PHASE_SEEKING;
+    motor->MoveVelocity(-HOMING_VELOCITY);
+    return true;
+}
+
+MotionHomeResult MotionHomeUpdate(MotionAxis axis) {
+    MotorDriver *motor = motors[axis];
+
+    switch (homePhase[axis]) {
+        case HOME_PHASE_SEEKING:
+            if (motor->AlertReg().bit.MotionCanceledNegativeLimit) {
+                motor->ClearAlerts();
+                // Back off to an absolute target rather than a relative move:
+                // MOVE_TARGET_REL_END_POSN is relative to the end position of
+                // the last *commanded* move, which is ill-defined here since
+                // the seek was a velocity move cut short by the limit trip.
+                int32_t backoffTarget = motor->PositionRefCommanded() + HOMING_BACKOFF_STEPS;
+                motor->Move(backoffTarget, MotorDriver::MOVE_TARGET_ABSOLUTE);
+                homePhase[axis] = HOME_PHASE_BACKOFF;
+                return HOMING_IN_PROGRESS;
+            }
+            if (motor->StatusReg().bit.AlertsPresent) {
+                homePhase[axis] = HOME_PHASE_IDLE;
+                return HOMING_FAILED;
+            }
+            return HOMING_IN_PROGRESS;
+
+        case HOME_PHASE_BACKOFF:
+            if (motor->StatusReg().bit.AlertsPresent) {
+                homePhase[axis] = HOME_PHASE_IDLE;
+                return HOMING_FAILED;
+            }
+            if (motor->StatusReg().bit.AtTargetPosition) {
+                motor->PositionRefSet(0);
+                homePhase[axis] = HOME_PHASE_IDLE;
+                return HOMING_DONE;
+            }
+            return HOMING_IN_PROGRESS;
+
+        default:
+            return HOMING_DONE;
+    }
 }

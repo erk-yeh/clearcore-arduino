@@ -4,23 +4,23 @@
 #define SERIAL_BAUD_RATE 115200
 
 void SerialInit() {
-    ConnectorUsb.Mode(Connector::USB_CDC);
-    ConnectorUsb.Speed(SERIAL_BAUD_RATE);
-    ConnectorUsb.PortOpen();
-    while (!ConnectorUsb) {
+    SerialPort.Mode(Connector::USB_CDC);
+    SerialPort.Speed(SERIAL_BAUD_RATE);
+    SerialPort.PortOpen();
+    while (!SerialPort.PortIsOpen()) {
         continue;
     }
 }
 
 void SerialSend(const char *text) {
-    ConnectorUsb.Send(text);
+    SerialPort.Send(text);
 }
 
 void SerialSendLine(const char *text) {
-    ConnectorUsb.SendLine(text);
+    SerialPort.SendLine(text);
 }
 
-void SerialLine::ReadLine(const char *rawLine) {
+void CommandLine::ReadLine(const char *rawLine) {
     strncpy(raw, rawLine, sizeof(raw) - 1);
     raw[sizeof(raw) - 1] = '\0';
 
@@ -32,13 +32,13 @@ void SerialLine::ReadLine(const char *rawLine) {
     }
 }
 
-bool SerialReadLine(SerialLine *line) {
+bool SerialReadLine(CommandLine *line) {
     static char lineBuffer[LINE_BUFFER_LEN];
     static size_t lineLength = 0;
 
-    while (ConnectorUsb.CharPeek() != -1) {
+    while (SerialPort.CharPeek() != -1) {
 
-        char c = (char)ConnectorUsb.CharGet();
+        char c = (char)SerialPort.CharGet();
 
         // Treat \r and \n as equally valid terminators - accepts \n-only,
         // \r-only, or \r\n line endings without knowing which one the
@@ -62,4 +62,5 @@ bool SerialReadLine(SerialLine *line) {
     }
     return false;
 }
- 
+
+
