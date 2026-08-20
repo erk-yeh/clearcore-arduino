@@ -26,12 +26,6 @@ struct MotionStatus {
 #define HOMING_VELOCITY 400
 #define HOMING_BACKOFF_STEPS 200
 
-enum MotionHomeResult {
-    HOMING_IN_PROGRESS,
-    HOMING_DONE,
-    HOMING_FAILED
-};
-
 int motor_init();
 
 void MotionEnable(MotionAxis axis, bool enable);
@@ -43,9 +37,9 @@ void MotionClearAlerts(MotionAxis axis);
 void MotionZero(MotionAxis axis);
 MotionStatus MotionGetStatus(MotionAxis axis);
 
-// Homes toward the negative limit switch. Non-blocking: call once to start,
-// then poll MotionHomeUpdate() every loop() until it returns other than
-// HOMING_IN_PROGRESS. Returns false without starting if alerts are already
-// present on this axis.
-bool MotionHomeStart(MotionAxis axis);
-MotionHomeResult MotionHomeUpdate(MotionAxis axis);
+// Homing primitives — stateless, one ClearCore call each. The phase
+// sequencing (seek -> wait for trip -> back off -> wait -> zero) lives in
+// FrameController, not here; Motion only knows how to talk to the hardware.
+void MotionSeekNegativeLimit(MotionAxis axis);
+bool MotionNegativeLimitTripped(MotionAxis axis);
+void MotionBackOffFromLimit(MotionAxis axis);

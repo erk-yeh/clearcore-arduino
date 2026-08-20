@@ -73,55 +73,23 @@ MotionStatus MotionGetStatus(MotionAxis axis) {
     return status;
 }
 
-enum HomePhase { HOME_PHASE_IDLE, HOME_PHASE_SEEKING, HOME_PHASE_BACKOFF };
-static HomePhase homePhase[AXIS_COUNT] = { HOME_PHASE_IDLE, HOME_PHASE_IDLE };
-
-bool MotionHomeStart(MotionAxis axis) {
+void MotionSeekNegativeLimit(MotionAxis axis) {
     MotorDriver *motor = motors[axis];
-    if (motor->StatusReg().bit.AlertsPresent) {
-        return false;
-    }
     motor->EnableRequest(true);
-    homePhase[axis] = HOME_PHASE_SEEKING;
     motor->MoveVelocity(-HOMING_VELOCITY);
-    return true;
 }
 
-MotionHomeResult MotionHomeUpdate(MotionAxis axis) {
+bool MotionNegativeLimitTripped(MotionAxis axis) {
+    return motors[axis]->AlertReg().bit.MotionCanceledNegativeLimit;
+}
+
+void MotionBackOffFromLimit(MotionAxis axis) {
     MotorDriver *motor = motors[axis];
-
-    switch (homePhase[axis]) {
-        case HOME_PHASE_SEEKING:
-            if (motor->AlertReg().bit.MotionCanceledNegativeLimit) {
-                motor->ClearAlerts();
-                // Back off to an absolute target rather than a relative move:
-                // MOVE_TARGET_REL_END_POSN is relative to the end position of
-                // the last *commanded* move, which is ill-defined here since
-                // the seek was a velocity move cut short by the limit trip.
-                int32_t backoffTarget = motor->PositionRefCommanded() + HOMING_BACKOFF_STEPS;
-                motor->Move(backoffTarget, MotorDriver::MOVE_TARGET_ABSOLUTE);
-                homePhase[axis] = HOME_PHASE_BACKOFF;
-                return HOMING_IN_PROGRESS;
-            }
-            if (motor->StatusReg().bit.AlertsPresent) {
-                homePhase[axis] = HOME_PHASE_IDLE;
-                return HOMING_FAILED;
-            }
-            return HOMING_IN_PROGRESS;
-
-        case HOME_PHASE_BACKOFF:
-            if (motor->StatusReg().bit.AlertsPresent) {
-                homePhase[axis] = HOME_PHASE_IDLE;
-                return HOMING_FAILED;
-            }
-            if (motor->StatusReg().bit.AtTargetPosition) {
-                motor->PositionRefSet(0);
-                homePhase[axis] = HOME_PHASE_IDLE;
-                return HOMING_DONE;
-            }
-            return HOMING_IN_PROGRESS;
-
-        default:
-            return HOMING_DONE;
-    }
+    motor->ClearAlerts();
+    // Back off to an absolute target rather than a relative move:
+    // MOVE_TARGET_REL_END_POSN is relative to the end position of the last
+    // *commanded* move, which is ill-defined here since the seek was a
+    // velocity move cut short by the limit trip.
+    int32_t backoffTarget = motor->PositionRefCommanded() + HOMING_BACKOFF_STEPS;
+    motor->Move(backoffTarget, MotorDriver::MOVE_TARGET_ABSOLUTE);
 }
