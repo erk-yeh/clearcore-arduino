@@ -4,10 +4,14 @@
 
 FrameController Device;
 
-FrameController::FrameController() : opState(OP_IDLE) {
+FrameController::FrameController() : opState(OP_IDLE), homeStartMs(0) {
     for (int i = 0; i < AXIS_COUNT; i++) {
         homePhase[i] = HOME_PHASE_IDLE;
     }
+}
+
+bool FrameController::IsBusy() const {
+    return opState != OP_IDLE;
 }
 
 static bool ParseInt(const char *str, int32_t *out) {
@@ -104,17 +108,24 @@ void FrameController::PollMove() {
 }
 
 void FrameController::HandleHome(const CommandLine &line) {
-    if (!MotionCanMove(AXIS_X) || !MotionCanMove(AXIS_Y)) {
+    if (!StartHoming()) {
         SerialSendLine("ERR alert present, clear before homing");
-        return;
+    }
+}
+
+bool FrameController::StartHoming() {
+    if (!MotionCanMove(AXIS_X) || !MotionCanMove(AXIS_Y)) {
+        return false;
     }
 
+    homeStartMs = Milliseconds();
     for (int i = 0; i < AXIS_COUNT; i++) {
         homePhase[i] = HOME_PHASE_SEEKING;
     }
     MotionSeekNegativeLimit(AXIS_X);
     MotionSeekNegativeLimit(AXIS_Y);
     opState = OP_HOMING;
+    return true;
 }
 
 void FrameController::PollHome() {
@@ -134,6 +145,11 @@ void FrameController::PollHome() {
 }
 
 FrameController::HomeResult FrameController::UpdateHomePhase(MotionAxis axis) {
+    if (homePhase[axis] != HOME_PHASE_IDLE && Milliseconds() - homeStartMs > HOMING_TIMEOUT_MS) {
+        homePhase[axis] = HOME_PHASE_IDLE;
+        return HOME_FAILED;
+    }
+
     switch (homePhase[axis]) {
         case HOME_PHASE_SEEKING:
             if (MotionNegativeLimitTripped(axis)) {

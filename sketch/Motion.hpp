@@ -12,7 +12,7 @@ enum MotionAxis {
 
 // Placeholder pending steps-per-mm mechanical calibration (lead screw pitch,
 // MSP Positioning Resolution) — see Plan.md. Shared across both axes.
-#define STEPS_PER_MM 800 / 8 
+#define STEPS_PER_MM (800 / 8)
 
 struct MotionStatus {
     int32_t position;

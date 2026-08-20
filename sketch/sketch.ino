@@ -4,9 +4,17 @@
 
 void setup() {
     motor_init();
-    MotionEnable(AXIS_X, true);
-    MotionEnable(AXIS_Y, true);
-    // TODO: homing goes here once implemented (before SerialInit, per Plan.md)
+
+    // Homing enables both axes itself (see MotionSeekNegativeLimit). This
+    // blocks setup(), which is fine — nothing else can happen yet anyway,
+    // since serial isn't open. HOMING_TIMEOUT_MS bounds the wait so a stuck
+    // switch can't prevent the serial port from ever opening; StartHoming()
+    // returning false (pre-existing alert) also falls straight through.
+    Device.StartHoming();
+    while (Device.IsBusy()) {
+        Device.Update();
+    }
+
     SerialInit();
     SerialSendLine("Connection made");
 }
