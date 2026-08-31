@@ -48,6 +48,8 @@ void FrameController::HandleCommand(const CommandLine &line) {
 
     if (strcmp(line.command, "MOVE") == 0) {
         HandleMove(line);
+    } else if (strcmp(line.command, "MOVE_REL") == 0) {
+        HandleMoveRelative(line);
     } else if (strcmp(line.command, "HOME") == 0) {
         HandleHome(line);
     } else if (strcmp(line.command, "CLEAR_ALERTS") == 0) {
@@ -91,6 +93,33 @@ void FrameController::HandleMove(const CommandLine &line) {
     opState = OP_MOVING;
 }
 
+void FrameController::HandleMoveRelative(const CommandLine &line) {
+    if (line.num_args != 2) {
+        SerialSendLine("ERR MOVE_REL requires 2 args: dX dY");
+        return;
+    }
+
+    int32_t dx_mm, dy_mm;
+    if (!ParseInt(line.args[0], &dx_mm) || !ParseInt(line.args[1], &dy_mm)) {
+        SerialSendLine("ERR MOVE_REL args must be integers");
+        return;
+    }
+
+    // No bounds check against X_LENGTH_MM/Y_LENGTH_MM here: unlike MOVE, a
+    // delta isn't a resulting absolute position, and computing one would
+    // mean reading current position ourselves - exactly what using
+    // MOVE_TARGET_REL_END_POSN was chosen to avoid. Over-travel falls back
+    // to the limit switches, same as any other move.
+    if (!MotionCanMove(AXIS_X) || !MotionCanMove(AXIS_Y)) {
+        SerialSendLine("ERR alert present, clear before moving");
+        return;
+    }
+
+    MotionMoveRelativeMM(AXIS_X, dx_mm);
+    MotionMoveRelativeMM(AXIS_Y, dy_mm);
+    opState = OP_MOVING;
+}
+
 void FrameController::PollMove() {
     MotionStatus x = MotionGetStatus(AXIS_X);
     MotionStatus y = MotionGetStatus(AXIS_Y);
@@ -122,8 +151,11 @@ bool FrameController::StartHoming() {
     for (int i = 0; i < AXIS_COUNT; i++) {
         homePhase[i] = HOME_PHASE_SEEKING;
     }
-    MotionSeekNegativeLimit(AXIS_X);
-    MotionSeekNegativeLimit(AXIS_Y);
+    // TEMP: seeking + instead of - for bench testing. Swap back to
+    // MotionSeekNegativeLimit (and the matching calls in UpdateHomePhase
+    // below) once testing toward - is possible again - see Motion.hpp.
+    MotionSeekPositiveLimit(AXIS_X);
+    MotionSeekPositiveLimit(AXIS_Y);
     opState = OP_HOMING;
     return true;
 }
@@ -152,8 +184,9 @@ FrameController::HomeResult FrameController::UpdateHomePhase(MotionAxis axis) {
 
     switch (homePhase[axis]) {
         case HOME_PHASE_SEEKING:
-            if (MotionNegativeLimitTripped(axis)) {
-                MotionBackOffFromLimit(axis);
+            // TEMP: matches MotionSeekPositiveLimit in StartHoming() above.
+            if (MotionPositiveLimitTripped(axis)) {
+                MotionBackOffFromPositiveLimit(axis);
                 homePhase[axis] = HOME_PHASE_BACKOFF;
                 return HOME_IN_PROGRESS;
             }

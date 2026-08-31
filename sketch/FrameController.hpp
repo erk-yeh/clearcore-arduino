@@ -50,6 +50,7 @@ class FrameController {
         uint32_t homeStartMs;
 
         void HandleMove(const CommandLine &line);
+        void HandleMoveRelative(const CommandLine &line);
         void HandleHome(const CommandLine &line);
         void HandleClearAlerts(const CommandLine &line);
         void HandleZero(const CommandLine &line);
